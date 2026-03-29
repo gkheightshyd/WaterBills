@@ -1,184 +1,144 @@
-<!DOCTYPE html><html lang="en">
+<!DOCTYPE html><html>
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Water Bill Reconciliation</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
-body { font-family: Arial, sans-serif; padding: 16px; }
-button { padding: 8px 12px; margin: 4px; }
-table { border-collapse: collapse; width: 100%; margin-top: 16px; }
-th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
-th { background: #f0f0f0; cursor: pointer; }
-.paid { background: #c8e6c9; }
-.pending { background: #eeeeee; }
-.duplicate { background: #ffe0b2; }
+body{font-family:Arial;padding:12px}
+table{border-collapse:collapse;width:100%;margin-top:12px}
+th,td{border:1px solid #ccc;padding:6px;text-align:center}
+th{background:#f0f0f0;cursor:pointer}
+.paid{background:#c8e6c9}
+.pending{background:#eee}
 </style>
 </head>
 <body>
-<h2>Water Bill Reconciliation</h2><label>Water Bill PDF</label> <input type="file" id="billPdf" accept="application/pdf" /><br/> <label>Bank Statement PDF</label> <input type="file" id="bankPdf" accept="application/pdf" /><br/>
+<h2>Water Bill Reconciliation</h2>Water Bill PDF:<br> <input type="file" id="billPdf" accept="application/pdf"><br><br>
 
-<button onclick="reconcile()">Reconcile</button> <button onclick="downloadCSV()">Download CSV</button>
+Bank Statement PDF:<br> <input type="file" id="bankPdf" accept="application/pdf"><br><br>
 
-<h3>Reconciliation</h3>
+<button id="reconcileBtn">Reconcile</button>
+
+<h3>Bill vs Payment</h3>
 <table id="resultTable">
 <thead>
-<tr>
-<th onclick="sortTable(0)">Flat</th>
-<th onclick="sortTable(1)">Bill</th>
-<th onclick="sortTable(2)">Payment</th>
-<th onclick="sortTable(3)">Status</th>
-<th>Override</th>
-</tr>
+<tr><th>Flat</th><th>Bill</th><th>Payment</th><th>Status</th><th>Override</th></tr>
 </thead>
 <tbody></tbody>
 </table><h3>Unmatched Bank Transactions</h3>
 <table id="unmatchedTable">
-<thead>
-<tr>
-<th>Amount</th>
-<th>Description</th>
-</tr>
-</thead>
+<thead><tr><th>Amount</th><th>Description</th></tr></thead>
 <tbody></tbody>
 </table><script>
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-async function extractText(file) {
-  const pdf = await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
+async function readPdf(file){
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data}).promise;
+  let text = '';
+  for(let i=1;i<=pdf.numPages;i++){
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    text += content.items.map(i => i.str).join(" ") + "\n";
+    text += content.items.map(x=>x.str).join(' ') + '\n';
   }
   return text;
 }
 
-function extractBills(text) {
+function parseBills(text){
   const regex = /(\d+)\s+(\d{3})\s+[\d\s]+?(\d+\.00)/g;
-  const rows = [];
+  const bills=[];
   let m;
-  while ((m = regex.exec(text)) !== null) {
-    const flat = m[2];
-    const amount = parseFloat(m[3]);
-    const floor = parseInt(flat[0]);
-    const unit = parseInt(flat.slice(1));
-    if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
-      rows.push({ flat, amount });
+  while((m=regex.exec(text))!==null){
+    const flat=m[2];
+    const amount=parseFloat(m[3]);
+    const floor=parseInt(flat[0]);
+    const unit=parseInt(flat.slice(1));
+    if(floor>=1 && floor<=5 && unit>=1 && unit<=14){
+      bills.push({flat,amount});
     }
   }
-  return rows;
+  return bills;
 }
 
-function extractPayments(text) {
-  const lines = text.split(/\n+/);
-  const payments = [];
-  lines.forEach(line => {
-    const match = line.match(/(\d+\.\d{2}).*?(CR|CREDIT)/i);
-    if (match) {
-      payments.push({ amount: parseFloat(match[1]), desc: line });
+function parseBank(text){
+  const lines=text.split(/\n+/);
+  const tx=[];
+  lines.forEach(l=>{
+    const m=l.match(/(\d+\.\d{2}).*(CR|CREDIT)/i);
+    if(m){
+      tx.push({amount:parseFloat(m[1]),desc:l});
     }
   });
-  return payments;
+  return tx;
 }
 
-function reconcileRows(bills, payments) {
-  const used = new Array(payments.length).fill(false);
-  const results = bills.map(b => {
-    let payment = "-";
-    let status = "Pending";
-    for (let i = 0; i < payments.length; i++) {
-      if (!used[i] && payments[i].amount === b.amount) {
-        used[i] = true;
-        payment = b.amount;
-        status = "Paid";
+function reconcile(bills,tx){
+  const used=new Array(tx.length).fill(false);
+  const rows=bills.map(b=>{
+    let payment='-';
+    let status='Pending';
+    for(let i=0;i<tx.length;i++){
+      if(!used[i] && tx[i].amount===b.amount){
+        used[i]=true;
+        payment=b.amount;
+        status='Paid';
         break;
       }
     }
-    return { ...b, payment, status };
+    return {...b,payment,status};
   });
-
-  const unmatched = payments.filter((p, i) => !used[i]);
-  return { results, unmatched };
+  const unmatched=tx.filter((_,i)=>!used[i]);
+  return {rows,unmatched};
 }
 
-function render(data) {
-  const tbody = document.querySelector("#resultTable tbody");
-  tbody.innerHTML = "";
-  data.results.forEach((r, idx) => {
-    const tr = document.createElement("tr");
-    tr.className = r.status === "Paid" ? "paid" : "pending";
-    tr.innerHTML = `
-      <td>${r.flat}</td>
-      <td>${r.amount}</td>
-      <td>${r.payment}</td>
-      <td>${r.status}</td>
-      <td><button onclick="overridePaid(${idx})">Override</button></td>`;
+function render(data){
+  const tbody=document.querySelector('#resultTable tbody');
+  tbody.innerHTML='';
+  data.rows.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.className=r.status==='Paid'?'paid':'pending';
+    tr.innerHTML=`<td>${r.flat}</td><td>${r.amount}</td><td>${r.payment}</td><td>${r.status}</td><td><button onclick="overrideRow(${i})">Override</button></td>`;
     tbody.appendChild(tr);
   });
 
-  const utbody = document.querySelector("#unmatchedTable tbody");
-  utbody.innerHTML = "";
-  data.unmatched.forEach(u => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${u.amount}</td><td>${u.desc}</td>`;
-    utbody.appendChild(tr);
+  const ut=document.querySelector('#unmatchedTable tbody');
+  ut.innerHTML='';
+  data.unmatched.forEach(u=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${u.amount}</td><td>${u.desc}</td>`;
+    ut.appendChild(tr);
   });
 
-  window.currentData = data;
+  window.currentData=data;
 }
 
-function overridePaid(index) {
-  const row = window.currentData.results[index];
-  row.status = "Paid (Manual)";
-  row.payment = row.amount;
+function overrideRow(i){
+  const r=window.currentData.rows[i];
+  r.status='Paid (Manual)';
+  r.payment=r.amount;
   render(window.currentData);
 }
 
-async function reconcile() {
-  const billFile = document.getElementById("billPdf").files[0];
-  const bankFile = document.getElementById("bankPdf").files[0];
-  if (!billFile || !bankFile) {
-    alert("Upload both PDFs");
-    return;
+document.getElementById('reconcileBtn').onclick=async ()=>{
+  try{
+    const billFile=document.getElementById('billPdf').files[0];
+    const bankFile=document.getElementById('bankPdf').files[0];
+    if(!billFile||!bankFile){alert('Please upload both PDFs');return}
+
+    const billText=await readPdf(billFile);
+    const bankText=await readPdf(bankFile);
+
+    const bills=parseBills(billText);
+    const tx=parseBank(bankText);
+
+    const data=reconcile(bills,tx);
+    render(data);
+  }catch(e){
+    alert('Error during reconciliation: '+e.message);
+    console.error(e);
   }
-
-  const billText = await extractText(billFile);
-  const bankText = await extractText(bankFile);
-
-  const bills = extractBills(billText);
-  const payments = extractPayments(bankText);
-
-  const data = reconcileRows(bills, payments);
-  render(data);
-}
-
-function sortTable(col) {
-  const table = document.getElementById("resultTable");
-  const rows = Array.from(table.tBodies[0].rows);
-  const asc = table.dataset.sort != col;
-  rows.sort((a, b) => {
-    const A = a.cells[col].innerText;
-    const B = b.cells[col].innerText;
-    return asc ? A.localeCompare(B, undefined, {numeric:true})
-               : B.localeCompare(A, undefined, {numeric:true});
-  });
-  rows.forEach(r => table.tBodies[0].appendChild(r));
-  table.dataset.sort = asc ? col : "";
-}
-
-function downloadCSV() {
-  let csv = "Flat,Bill,Payment,Status\n";
-  window.currentData.results.forEach(r => {
-    csv += `${r.flat},${r.amount},${r.payment},${r.status}\n`;
-  });
-  const blob = new Blob([csv], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "reconciliation.csv";
-  a.click();
-}
+};
 </script></body>
 </html>
