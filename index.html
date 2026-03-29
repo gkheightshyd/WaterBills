@@ -30,10 +30,10 @@
     <table id="resultTable">
       <thead>
         <tr>
-          <th>Flat</th>
-          <th>Bill Amount</th>
-          <th>Payment</th>
-          <th>Status</th>
+          <th onclick="sortTable(0)">Flat ▲▼</th>
+          <th onclick="sortTable(1)">Bill Amount ▲▼</th>
+          <th onclick="sortTable(2)">Payment ▲▼</th>
+          <th onclick="sortTable(3)">Status ▲▼</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -114,6 +114,30 @@ async function reconcile() {
       <td>${status}</td>`;
     tbody.appendChild(row);
   });
+}
+
+function sortTable(colIndex) {
+  const table = document.getElementById('resultTable');
+  const tbody = table.tBodies[0];
+  const rows = Array.from(tbody.rows);
+  const asc = table.getAttribute('data-sort-col') != colIndex || table.getAttribute('data-sort-dir') === 'desc';
+
+  rows.sort((a, b) => {
+    const A = a.cells[colIndex].innerText.trim();
+    const B = b.cells[colIndex].innerText.trim();
+
+    const numA = parseFloat(A);
+    const numB = parseFloat(B);
+
+    if (!isNaN(numA) && !isNaN(numB)) {
+      return asc ? numA - numB : numB - numA;
+    }
+    return asc ? A.localeCompare(B) : B.localeCompare(A);
+  });
+
+  rows.forEach(r => tbody.appendChild(r));
+  table.setAttribute('data-sort-col', colIndex);
+  table.setAttribute('data-sort-dir', asc ? 'asc' : 'desc');
 }
 
 function downloadCSV() {
