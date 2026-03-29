@@ -1,0 +1,134 @@
+<!DOCTYPE html><html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Water Bill Reconciliation</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 16px; background:#f5f5f5; }
+    h1 { font-size: 20px; }
+    .card { background: white; padding: 16px; border-radius: 10px; margin-bottom: 16px; }
+    input, button { padding: 10px; margin-top: 8px; width: 100%; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border: 1px solid #ccc; padding: 8px; font-size: 12px; }
+    th { background: #eee; }
+    .paid { background:#d4edda; }
+    .pending { background:#f8d7da; }
+    .duplicate { background:#fff3cd; }
+  </style>
+</head>
+<body>
+  <h1>Water Bill Reconciliation</h1>  <div class="card">
+    <label>SBI Statement PDF</label>
+    <input type="file" id="bankPdf" accept="application/pdf" /><label>Water Bill PDF</label>
+<input type="file" id="billPdf" accept="application/pdf" />
+
+<button onclick="reconcile()">Reconcile</button>
+<button onclick="downloadCSV()">Download CSV</button>
+
+  </div>  <div class="card">
+    <table id="resultTable">
+      <thead>
+        <tr>
+          <th>Flat</th>
+          <th>Bill Amount</th>
+          <th>Payment</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div><script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+async function extractText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join(" ");
+  }
+  return text;
+}
+
+function extractBills(text) {
+  const rows = [];
+  const regex = /(\d{3})\s+(\d+\.00)/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    rows.push({ flat: match[1], amount: parseFloat(match[2]) });
+  }
+  return rows;
+}
+
+function extractPayments(text) {
+  const amounts = [];
+  const regex = /(\d+\.00)/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const val = parseFloat(match[1]);
+    if (val > 20 && val < 2000) amounts.push(val);
+  }
+  return amounts;
+}
+
+async function reconcile() {
+  const bankFile = document.getElementById('bankPdf').files[0];
+  const billFile = document.getElementById('billPdf').files[0];
+  if (!bankFile || !billFile) return alert("Upload both PDFs");
+
+  const bankText = await extractText(bankFile);
+  const billText = await extractText(billFile);
+
+  const bills = extractBills(billText);
+  const payments = extractPayments(bankText);
+
+  const paymentCounts = {};
+  payments.forEach(a => paymentCounts[a] = (paymentCounts[a] || 0) + 1);
+
+  const tbody = document.querySelector('#resultTable tbody');
+  tbody.innerHTML = '';
+
+  bills.forEach(bill => {
+    const row = document.createElement('tr');
+    const paid = paymentCounts[bill.amount] > 0;
+
+    let status = "Pending";
+    if (paid) {
+      paymentCounts[bill.amount]--;
+      status = "Paid";
+      row.classList.add('paid');
+    }
+
+    if (payments.filter(a => a === bill.amount).length > 1) {
+      status = "Duplicate Amount - Check";
+      row.classList.add('duplicate');
+    }
+
+    row.innerHTML = `
+      <td>${bill.flat}</td>
+      <td>${bill.amount}</td>
+      <td>${paid ? bill.amount : '-'}</td>
+      <td>${status}</td>`;
+    tbody.appendChild(row);
+  });
+}
+
+function downloadCSV() {
+  let csv = "Flat,Bill,Payment,Status\n";
+  document.querySelectorAll("#resultTable tbody tr").forEach(tr => {
+    const cols = tr.querySelectorAll("td");
+    csv += Array.from(cols).map(td => td.innerText).join(",") + "\n";
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'reconciliation.csv';
+  a.click();
+}
+</script></body>
+</html>
