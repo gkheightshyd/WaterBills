@@ -32,6 +32,15 @@ th { background: #f0f0f0; cursor: pointer; }
 </tr>
 </thead>
 <tbody></tbody>
+</table><h3>Unmatched Bank Transactions</h3>
+<table id="unmatchedTable">
+<thead>
+<tr>
+<th>Amount</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody></tbody>
 </table><script>
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
@@ -80,7 +89,34 @@ function reconcileRows(bills, payments) {
   const paymentCount = {};
   payments.forEach(p => paymentCount[p] = (paymentCount[p] || 0) + 1);
 
-  return bills.map(b => {
+  const results = bills.map(b => {
+    let status = "Pending";
+    let payment = "-";
+
+    if (paymentCount[b.amount] > 0) {
+      payment = b.amount;
+      paymentCount[b.amount]--;
+      status = "Paid";
+    }
+
+    if (payments.filter(p => p === b.amount).length > 1) {
+      status = "Duplicate Amount - Check";
+    }
+
+    return { ...b, payment, status };
+  });
+
+  // Collect unmatched payments
+  const unmatched = [];
+  Object.keys(paymentCount).forEach(amount => {
+    const count = paymentCount[amount];
+    for (let i = 0; i < count; i++) {
+      unmatched.push(parseFloat(amount));
+    }
+  });
+
+  return { results, unmatched };
+}(b => {
     let status = "Pending";
     let payment = "-";
 
@@ -98,7 +134,31 @@ function reconcileRows(bills, payments) {
   });
 }
 
-function render(rows) {
+function render(data) {
+  const rows = data.results;
+  const unmatched = data.unmatched;
+  const tbody = document.querySelector("#resultTable tbody");
+  tbody.innerHTML = "";
+  rows.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.className = r.status.includes("Paid") ? "paid" :
+                   r.status.includes("Duplicate") ? "duplicate" : "pending";
+    tr.innerHTML = `
+      <td>${r.flat}</td>
+      <td>${r.amount}</td>
+      <td>${r.payment}</td>
+      <td>${r.status}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  const utbody = document.querySelector("#unmatchedTable tbody");
+  utbody.innerHTML = "";
+  unmatched.forEach(a => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${a}</td><td>No matching bill</td>`;
+    utbody.appendChild(tr);
+  });
+}
   const tbody = document.querySelector("#resultTable tbody");
   tbody.innerHTML = "";
   rows.forEach(r => {
@@ -124,9 +184,8 @@ async function reconcile() {
 
   const bills = extractBills(billText);
   const payments = extractPayments(bankText);
-  const rows = reconcileRows(bills, payments);
-
-  render(rows);
+  const data = reconcileRows(bills, payments);
+  render(data);
 }
 
 function sortTable(col) {
