@@ -6,9 +6,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
 <style>
 body { font-family: Arial, sans-serif; padding: 16px; }
-button { padding: 10px 14px; margin-top: 8px; width: 100%; }
+button { padding: 8px 12px; margin: 4px; }
 table { border-collapse: collapse; width: 100%; margin-top: 16px; }
-th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
 th { background: #f0f0f0; cursor: pointer; }
 .paid { background: #c8e6c9; }
 .pending { background: #eeeeee; }
@@ -16,12 +16,11 @@ th { background: #f0f0f0; cursor: pointer; }
 </style>
 </head>
 <body>
-<h2>Water Bill Reconciliation</h2><label>Water Bill PDF</label> <input type="file" id="billPdf" accept="application/pdf" />
-
-<label>Bank Statement PDF</label> <input type="file" id="bankPdf" accept="application/pdf" />
+<h2>Water Bill Reconciliation</h2><label>Water Bill PDF</label> <input type="file" id="billPdf" accept="application/pdf" /><br/> <label>Bank Statement PDF</label> <input type="file" id="bankPdf" accept="application/pdf" /><br/>
 
 <button onclick="reconcile()">Reconcile</button> <button onclick="downloadCSV()">Download CSV</button>
 
+<h3>Reconciliation</h3>
 <table id="resultTable">
 <thead>
 <tr>
@@ -29,6 +28,7 @@ th { background: #f0f0f0; cursor: pointer; }
 <th onclick="sortTable(1)">Bill</th>
 <th onclick="sortTable(2)">Payment</th>
 <th onclick="sortTable(3)">Status</th>
+<th>Override</th>
 </tr>
 </thead>
 <tbody></tbody>
@@ -37,7 +37,7 @@ th { background: #f0f0f0; cursor: pointer; }
 <thead>
 <tr>
 <th>Amount</th>
-<th>Note</th>
+<th>Description</th>
 </tr>
 </thead>
 <tbody></tbody>
@@ -57,15 +57,12 @@ async function extractText(file) {
 }
 
 function extractBills(text) {
-  // Extract flat number from FLAT NO column pattern: Serial FlatNo ... Amount
   const regex = /(\d+)\s+(\d{3})\s+[\d\s]+?(\d+\.00)/g;
   const rows = [];
   let m;
   while ((m = regex.exec(text)) !== null) {
     const flat = m[2];
     const amount = parseFloat(m[3]);
-
-    // Accept only valid flats 101-514
     const floor = parseInt(flat[0]);
     const unit = parseInt(flat.slice(1));
     if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
@@ -76,138 +73,106 @@ function extractBills(text) {
 }
 
 function extractPayments(text) {
-  const regex = /\b(\d+\.00)\b/g;
+  const lines = text.split(/\n+/);
   const payments = [];
-  let m;
-  while ((m = regex.exec(text)) !== null) {
-    payments.push(parseFloat(m[1]));
-  }
+  lines.forEach(line => {
+    const match = line.match(/(\d+\.\d{2}).*?(CR|CREDIT)/i);
+    if (match) {
+      payments.push({ amount: parseFloat(match[1]), desc: line });
+    }
+  });
   return payments;
 }
 
 function reconcileRows(bills, payments) {
-  const paymentCount = {};
-  payments.forEach(p => paymentCount[p] = (paymentCount[p] || 0) + 1);
-
+  const used = new Array(payments.length).fill(false);
   const results = bills.map(b => {
-    let status = "Pending";
     let payment = "-";
-
-    if (paymentCount[b.amount] > 0) {
-      payment = b.amount;
-      paymentCount[b.amount]--;
-      status = "Paid";
+    let status = "Pending";
+    for (let i = 0; i < payments.length; i++) {
+      if (!used[i] && payments[i].amount === b.amount) {
+        used[i] = true;
+        payment = b.amount;
+        status = "Paid";
+        break;
+      }
     }
-
-    if (payments.filter(p => p === b.amount).length > 1) {
-      status = "Duplicate Amount - Check";
-    }
-
     return { ...b, payment, status };
   });
 
-  // Collect unmatched payments
-  const unmatched = [];
-  Object.keys(paymentCount).forEach(amount => {
-    const count = paymentCount[amount];
-    for (let i = 0; i < count; i++) {
-      unmatched.push(parseFloat(amount));
-    }
-  });
-
+  const unmatched = payments.filter((p, i) => !used[i]);
   return { results, unmatched };
-}(b => {
-    let status = "Pending";
-    let payment = "-";
-
-    if (paymentCount[b.amount] > 0) {
-      payment = b.amount;
-      paymentCount[b.amount]--;
-      status = "Paid";
-    }
-
-    if (payments.filter(p => p === b.amount).length > 1) {
-      status = "Duplicate Amount - Check";
-    }
-
-    return { ...b, payment, status };
-  });
 }
 
 function render(data) {
-  const rows = data.results;
-  const unmatched = data.unmatched;
   const tbody = document.querySelector("#resultTable tbody");
   tbody.innerHTML = "";
-  rows.forEach(r => {
+  data.results.forEach((r, idx) => {
     const tr = document.createElement("tr");
-    tr.className = r.status.includes("Paid") ? "paid" :
-                   r.status.includes("Duplicate") ? "duplicate" : "pending";
+    tr.className = r.status === "Paid" ? "paid" : "pending";
     tr.innerHTML = `
       <td>${r.flat}</td>
       <td>${r.amount}</td>
       <td>${r.payment}</td>
-      <td>${r.status}</td>`;
+      <td>${r.status}</td>
+      <td><button onclick="overridePaid(${idx})">Override</button></td>`;
     tbody.appendChild(tr);
   });
 
   const utbody = document.querySelector("#unmatchedTable tbody");
   utbody.innerHTML = "";
-  unmatched.forEach(a => {
+  data.unmatched.forEach(u => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${a}</td><td>No matching bill</td>`;
+    tr.innerHTML = `<td>${u.amount}</td><td>${u.desc}</td>`;
     utbody.appendChild(tr);
   });
+
+  window.currentData = data;
 }
-  const tbody = document.querySelector("#resultTable tbody");
-  tbody.innerHTML = "";
-  rows.forEach(r => {
-    const tr = document.createElement("tr");
-    tr.className = r.status.includes("Paid") ? "paid" :
-                   r.status.includes("Duplicate") ? "duplicate" : "pending";
-    tr.innerHTML = `
-      <td>${r.flat}</td>
-      <td>${r.amount}</td>
-      <td>${r.payment}</td>
-      <td>${r.status}</td>`;
-    tbody.appendChild(tr);
-  });
+
+function overridePaid(index) {
+  const row = window.currentData.results[index];
+  row.status = "Paid (Manual)";
+  row.payment = row.amount;
+  render(window.currentData);
 }
 
 async function reconcile() {
   const billFile = document.getElementById("billPdf").files[0];
   const bankFile = document.getElementById("bankPdf").files[0];
-  if (!billFile || !bankFile) return alert("Upload both PDFs");
+  if (!billFile || !bankFile) {
+    alert("Upload both PDFs");
+    return;
+  }
 
   const billText = await extractText(billFile);
   const bankText = await extractText(bankFile);
 
   const bills = extractBills(billText);
   const payments = extractPayments(bankText);
+
   const data = reconcileRows(bills, payments);
   render(data);
 }
 
 function sortTable(col) {
   const table = document.getElementById("resultTable");
-  const rows = Array.from(table.rows).slice(1);
+  const rows = Array.from(table.tBodies[0].rows);
   const asc = table.dataset.sort != col;
-
   rows.sort((a, b) => {
     const A = a.cells[col].innerText;
     const B = b.cells[col].innerText;
     return asc ? A.localeCompare(B, undefined, {numeric:true})
                : B.localeCompare(A, undefined, {numeric:true});
   });
-
-  rows.forEach(r => table.appendChild(r));
+  rows.forEach(r => table.tBodies[0].appendChild(r));
   table.dataset.sort = asc ? col : "";
 }
 
 function downloadCSV() {
   let csv = "Flat,Bill,Payment,Status\n";
-  document.querySelectorAll("#resultTable tbody tr").forEach(r => {
-    csv += Array.from(r.cells).map(c => c.innerText).join(",") + "\n";
+  window.currentData.results.forEach(r => {
+    csv += `${r.flat},${r.amount},${r.payment},${r.status}\n`;
   });
   const blob = new Blob([csv], { type: "text/csv" });
   const a = document.createElement("a");
