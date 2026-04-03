@@ -1,19 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Water Bill Reconciler</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Water Bill Reconciliation</title>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
 
 <style>
-body { font-family: Arial; margin:20px; }
-table { border-collapse: collapse; width:100%; margin-top:10px; }
-th,td { border:1px solid #ccc; padding:6px; }
-th { background:#eee; }
-.paid { background:#d4edda; }
-.unpaid { background:#f8d7da; }
-.nobill { background:#fff3cd; }
+body { font-family: Arial, sans-serif; padding: 16px; }
+button { padding: 10px 14px; margin-top: 8px; width: 100%; }
+table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+th { background: #f0f0f0; cursor: pointer; }
+.paid { background: #c8e6c9; }
+.pending { background: #eeeeee; }
+.duplicate { background: #ffe0b2; }
 </style>
 </head>
 
@@ -21,204 +23,256 @@ th { background:#eee; }
 
 <h2>Water Bill Reconciliation</h2>
 
-<label>Bills PDF:
-<input type="file" id="billsFile" accept="application/pdf">
-</label><br><br>
+<div style="margin-top:8px;">
+<label>Month</label>
+<select id="monthSelect" style="margin-right:8px;"></select>
 
-<label>Bank PDF:
-<input type="file" id="bankFile" accept="application/pdf">
-</label><br><br>
+<label>Year</label>
+<input type="text" id="yearInput" style="width:80px;" />
+<br/>
 
-<button id="reconcileBtn">Reconcile Data</button>
+<label style="margin-left:8px;">
+<input type="checkbox" id="adminToggle" /> Admin
+</label>
 
-<h3>Bill vs Payment</h3>
-<table id="billTable">
+<div id="adminSection" style="display:none; margin-top:8px;">
+<label>Water Bill PDF</label>
+<input type="file" id="billPdf" accept="application/pdf" />
+
+<label>Bank Statement PDF</label>
+<input type="file" id="bankPdf" accept="application/pdf" />
+
+<label>Repo Bill URL</label>
+<input type="text" id="repoBillUrl"
+placeholder="Paste GitHub blob or raw URL"
+value="https://github.com/cravikumar/WaterBills/blob/main/MARCH%202026%20-%20GK%20HEIGHTS%20WATER%20BILLS%20DATA.pdf" />
+
+<label>Repo Bank URL</label>
+<input type="text" id="repoBankUrl"
+placeholder="Paste GitHub blob or raw URL"
+value="https://github.com/cravikumar/WaterBills/blob/main/SBIPDF20260328091009XXXXXX1839-unlocked.pdf" />
+
+<div style="margin-top:8px;">
+<button onclick="reconcile()">Reconcile</button>
+<button onclick="downloadCSV()">Download CSV</button>
+</div>
+</div>
+</div>
+
+<table id="resultTable">
 <thead>
 <tr>
-<th>Flat</th>
-<th>Bill</th>
-<th>Paid</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody></tbody>
-</table>
-
-<h3>Unmatched Bank Transactions</h3>
-<table id="unmatchedTable">
-<thead>
-<tr>
-<th>Amount</th>
-<th>Description</th>
+<th onclick="sortTable(0)">Flat</th>
+<th onclick="sortTable(1)">Bill</th>
+<th onclick="sortTable(2)">Payment</th>
+<th onclick="sortTable(3)">Status</th>
+<th>PayNow</th>
+<th>Send Reminder</th>
 </tr>
 </thead>
 <tbody></tbody>
 </table>
 
 <script>
+
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
 
-const ALL_FLATS = [
-101,102,103,104,105,106,107,108,109,110,111,112,113,114,
-201,202,203,204,205,206,207,208,209,210,211,212,213,214,
-301,302,303,304,305,306,307,308,309,310,311,312,313,314,
-401,402,403,404,405,406,407,408,409,410,411,412,413,414,
-501,502,503,504,505,506,507,508,509,510,511,512,513,514
-];
+let repoBillBuffer = null;
+let repoBankBuffer = null;
+let flatMobileMap = {};
 
-document.getElementById("reconcileBtn").addEventListener("click", reconcile);
+const monthShortNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const monthFullNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-async function extractTokens(file){
-try {
-const data = new Uint8Array(await file.arrayBuffer());
-const pdf = await pdfjsLib.getDocument({data}).promise;
+function populateMonthYearControls() {
+    const sel = document.getElementById('monthSelect');
 
-let tokens=[];
-for(let p=1;p<=pdf.numPages;p++){
-const page=await pdf.getPage(p);
-const txt=await page.getTextContent();
-txt.items.forEach(i=>tokens.push(i.str.trim()));
+    monthShortNames.forEach((m,i) => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.innerText = m;
+        sel.appendChild(opt);
+    });
+
+    const yi = document.getElementById('yearInput');
+    const now = new Date();
+
+    const curMonth = now.getMonth();
+    const curYear = now.getFullYear();
+
+    sel.selectedIndex = curMonth;
+    yi.value = curYear;
+
+    sel.addEventListener('change', buildRepoUrls);
+    yi.addEventListener('change', buildRepoUrls);
 }
 
-return tokens.filter(t=>t);
-} catch(e){
-alert("Error reading PDF: " + e.message);
-throw e;
-}
-}
+function buildRepoUrls() {
+    const sel = document.getElementById('monthSelect');
+    const yi = document.getElementById('yearInput');
 
-function parseBills(tokens){
-const bills={};
+    const month = sel.value;
+    const year = yi.value.trim() || new Date().getFullYear();
 
-for(let i=0;i<tokens.length;i++){
-const flat=parseInt(tokens[i]);
+    const base = `https://github.com/cravikumar/WaterBills/blob/main/docs/${year}/${month}`;
 
-if(ALL_FLATS.includes(flat)){
-let amount=null;
-
-for(let j=i+1;j<i+15 && j<tokens.length;j++){
-
-if(/^\d+\.\d{2}$/.test(tokens[j])){
-const val=parseFloat(tokens[j]);
-
-if(val>0 && val<2000){
-amount=val;
-}
+    document.getElementById('repoBillUrl').value = `${base}/bill.pdf`;
+    document.getElementById('repoBankUrl').value = `${base}/statement.pdf`;
 }
 
-if(ALL_FLATS.includes(parseInt(tokens[j]))) break;
+function setupAdminToggle() {
+    const toggle = document.getElementById('adminToggle');
+    const adminSection = document.getElementById('adminSection');
+
+    if (!toggle || !adminSection) return;
+
+    adminSection.style.display = 'none';
+    toggle.checked = false;
+
+    toggle.addEventListener('change', () => {
+        adminSection.style.display = toggle.checked ? '' : 'none';
+    });
 }
 
-if(amount!==null){
-bills[flat]=amount;
-}
-}
-}
-return bills;
+async function fetchArrayBuffer(url) {
+    try {
+        if (/github\.com/.test(url) && /\/blob\//.test(url)) {
+            url = url.replace(/^https:\/\/github\.com\//, 'https://raw.githubusercontent.com/')
+                     .replace('/blob/', '/');
+        }
+    } catch(e) {}
+
+    let fetchUrl = url;
+
+    try {
+        fetchUrl = encodeURI(decodeURIComponent(url));
+    } catch(e) {
+        fetchUrl = encodeURI(url);
+    }
+
+    const res = await fetch(fetchUrl);
+    if (!res.ok) throw new Error('Failed to fetch ' + fetchUrl + ' - ' + res.status);
+
+    return await res.arrayBuffer();
 }
 
-function parseBank(tokens){
-const txns=[];
+async function fetchText(url) {
+    try {
+        if (/github\.com/.test(url) && /\/blob\//.test(url)) {
+            url = url.replace(/^https:\/\/github\.com\//, 'https://raw.githubusercontent.com/')
+                     .replace('/blob/', '/');
+        }
+    } catch(e) {}
 
-for(let i=0;i<tokens.length-1;i++){
-if(
-/^\d{1,3}(,\d{3})*\.\d{2}$/.test(tokens[i]) &&
-/^\d{1,3}(,\d{3})*\.\d{2}$/.test(tokens[i+1])
-){
-const amount=parseFloat(tokens[i].replace(/,/g,""));
+    let fetchUrl = url;
 
-let desc=[];
-let j=i-1;
-while(j>=0 && !/^\d{1,2}$/.test(tokens[j])){
-desc.unshift(tokens[j]);
-j--;
+    try {
+        fetchUrl = encodeURI(decodeURIComponent(url));
+    } catch(e) {
+        fetchUrl = encodeURI(url);
+    }
+
+    const res = await fetch(fetchUrl);
+    if (!res.ok) throw new Error('Failed to fetch ' + fetchUrl + ' - ' + res.status);
+
+    return await res.text();
 }
 
-txns.push({
-amount:amount,
-description:desc.join(" ")
+async function loadFlatMobileCsv() {
+    const csvUrl = 'https://github.com/cravikumar/WaterBills/blob/main/docs/flatmobile.csv';
+
+    try {
+        const text = await fetchText(csvUrl);
+        parseFlatMobileCsv(text);
+        console.log('Loaded flat->mobile mapping (rows:', Object.keys(flatMobileMap).length, ')');
+    } catch (e) {
+        console.warn('Failed to load flatmobile.csv:', e);
+    }
+}
+
+function parseFlatMobileCsv(text) {
+    flatMobileMap = {};
+
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+
+    const start = (lines[0].toLowerCase().includes('flat') && lines[0].toLowerCase().includes('mobile')) ? 1 : 0;
+
+    for (let i = start; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.trim());
+        if (parts.length < 2) continue;
+
+        const flat = parts[0];
+        let mobile = parts[1].replace(/[^\d+]/g, '');
+
+        if (mobile.startsWith('+')) mobile = mobile.slice(1);
+        if (mobile.length === 10) mobile = '91' + mobile;
+
+        flatMobileMap[flat] = mobile;
+    }
+}
+
+async function loadPdfsFromRepo() {
+    const billUrlInput = document.getElementById('repoBillUrl');
+    const bankUrlInput = document.getElementById('repoBankUrl');
+
+    let billUrl = billUrlInput.value.trim();
+    let bankUrl = bankUrlInput.value.trim();
+
+    try {
+        let bBuf, kBuf;
+
+        try {
+            [bBuf, kBuf] = await Promise.all([
+                fetchArrayBuffer(billUrl),
+                fetchArrayBuffer(bankUrl)
+            ]);
+        } catch (err) {
+            const sel = document.getElementById('monthSelect');
+            const monthShort = sel.value;
+            const mi = monthShortNames.indexOf(monthShort);
+
+            if (mi >= 0) {
+                const monthFull = monthFullNames[mi];
+
+                const altBillUrl = billUrl.replace('/' + monthShort + '/', '/' + monthFull + '/');
+                const altBankUrl = bankUrl.replace('/' + monthShort + '/', '/' + monthFull + '/');
+
+                [bBuf, kBuf] = await Promise.all([
+                    fetchArrayBuffer(altBillUrl),
+                    fetchArrayBuffer(altBankUrl)
+                ]);
+
+                billUrl = altBillUrl;
+                bankUrl = altBankUrl;
+
+                billUrlInput.value = billUrl;
+                bankUrlInput.value = bankUrl;
+            } else throw err;
+        }
+
+        repoBillBuffer = bBuf;
+        repoBankBuffer = kBuf;
+
+        console.log('Loaded PDFs from repo (auto-reconciling)');
+        try { await reconcile(); } catch(e){ console.warn('Auto-reconcile failed:', e); }
+
+    } catch (err) {
+        console.warn('Error loading PDFs:', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    populateMonthYearControls();
+    buildRepoUrls();
+    setupAdminToggle();
+
+    loadFlatMobileCsv().finally(() => {
+        loadPdfsFromRepo().catch(err => console.warn('Auto-load failed:', err));
+    });
 });
-}
-}
-return txns;
-}
 
-async function reconcile(){
-try {
-
-const billFile=document.getElementById("billsFile").files[0];
-const bankFile=document.getElementById("bankFile").files[0];
-
-if(!billFile || !bankFile){
-alert("Please upload both PDFs first.");
-return;
-}
-
-const billTokens=await extractTokens(billFile);
-const bankTokens=await extractTokens(bankFile);
-
-const bills=parseBills(billTokens);
-const txns=parseBank(bankTokens);
-
-const billBody=document.querySelector("#billTable tbody");
-const unmatchedBody=document.querySelector("#unmatchedTable tbody");
-
-billBody.innerHTML="";
-unmatchedBody.innerHTML="";
-
-const used=new Set();
-
-ALL_FLATS.forEach(flat=>{
-
-const bill=bills[flat] || 0;
-let payment=null;
-
-if(bill>0){
-payment=txns.find((t,idx)=>{
-if(used.has(idx)) return false;
-if(t.amount===bill){
-used.add(idx);
-return true;
-}
-return false;
-});
-}
-
-const tr=document.createElement("tr");
-
-if(payment) tr.className="paid";
-else if(bill===0) tr.className="nobill";
-else tr.className="unpaid";
-
-tr.innerHTML=`
-<td>${flat}</td>
-<td>${bill.toFixed(2)}</td>
-<td>${payment?payment.amount.toFixed(2):"-"}</td>
-<td>${payment?"Paid":(bill===0?"No Bill":"Unpaid")}</td>
-`;
-
-billBody.appendChild(tr);
-});
-
-txns.forEach((t,idx)=>{
-if(!used.has(idx)){
-const tr=document.createElement("tr");
-tr.innerHTML=`
-<td>${t.amount.toFixed(2)}</td>
-<td>${t.description}</td>
-`;
-unmatchedBody.appendChild(tr);
-}
-});
-
-alert("Reconciliation completed");
-
-} catch(e){
-alert("Reconciliation failed: " + e.message);
-console.error(e);
-}
-}
 </script>
 
 </body>
