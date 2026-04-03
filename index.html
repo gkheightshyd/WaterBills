@@ -273,6 +273,185 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+
+
+
+
+
+async function extractText(file) {
+    const pdf = await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
+    let text = "";
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(i => i.str).join(" ") + "\n";
+    }
+    return text;
+}
+
+async function extractTextFromArrayBuffer(ab) {
+    const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+    let text = "";
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(i => i.str).join(" ") + "\n";
+    }
+    return text;
+}
+
+function extractBills(text) {
+    const regex = /(\d+)\s+(\d{3})\s+[\d\S]+?\s(\d+\.00)/g;
+    const rows = [];
+    let m;
+
+    while ((m = regex.exec(text)) !== null) {
+        const flat = m[2];
+        const amount = parseFloat(m[3]);
+
+        const floor = parseInt(flat[0]);
+        const unit = parseInt(flat.slice(1));
+
+        if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
+            rows.push({ flat, amount });
+        }
+    }
+
+    return rows;
+}
+
+function extractPayments(text) {
+    const regex = /\b(\d+\.00)\b/g;
+    const payments = [];
+    let m;
+
+    while ((m = regex.exec(text)) !== null) {
+        payments.push(parseFloat(m[1]));
+    }
+
+    return payments;
+}
+
+function reconcileRows(bills, payments) {
+    const paymentCount = {};
+    payments.forEach(p => paymentCount[p] = (paymentCount[p] || 0) + 1);
+
+    return bills.map(b => {
+        let status = "Pending";
+        let payment = "-";
+
+        if (paymentCount[b.amount] > 0) {
+            payment = b.amount;
+            paymentCount[b.amount]--;
+            status = "Paid";
+        }
+
+        if (payments.filter(p => p === b.amount).length > 1) {
+            status = "Duplicate Amount - Check";
+        }
+
+        return { ...b, payment, status };
+    });
+}
+
+function render(rows) {
+    const tbody = document.querySelector("#resultTable tbody");
+    tbody.innerHTML = "";
+
+    rows.forEach(r => {
+        const tr = document.createElement("tr");
+
+        tr.className =
+            r.status.includes("Paid") ? "paid" :
+            r.status.includes("Duplicate") ? "duplicate" : "pending";
+
+        const month = document.getElementById('monthSelect').value;
+        const note = `${month}-${r.flat}`;
+        const amountStr = Number(r.amount).toFixed(2);
+
+        const upiId = "9791440009@upi";
+
+        const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent('GKHeights')}&am=${encodeURIComponent(amountStr)}&cu=INR&tn=${encodeURIComponent(note)}`;
+
+        const baseRow = `
+        <td>${r.flat}</td>
+        <td>${amountStr}</td>
+        <td>${r.payment}</td>
+        <td>${r.status}</td>
+        <td><a href="${upiUrl}" target="_blank"><button>PayNow</button></a></td>
+        `;
+
+        const mobile = flatMobileMap[r.flat];
+        let reminderCell = "";
+
+        if (mobile) {
+            const msg = `Reminder: Payment due for ${month} flat ${r.flat}. Amount: INR ${amountStr}. Please pay soon.`;
+            const waUrl = `https://wa.me/${mobile}?text=${encodeURIComponent(msg)}`;
+            reminderCell = `<td><a href="${waUrl}" target="_blank"><button>Send Reminder</button></a></td>`;
+        } else {
+            reminderCell = "<td>-</td>";
+        }
+
+        tr.innerHTML = baseRow + reminderCell;
+        tbody.appendChild(tr);
+    });
+}
+
+async function reconcile() {
+    const billFile = document.getElementById("billPdf").files[0];
+    const bankFile = document.getElementById("bankPdf").files[0];
+
+    let billText, bankText;
+
+    if (repoBillBuffer && repoBankBuffer) {
+        billText = await extractTextFromArrayBuffer(repoBillBuffer);
+        bankText = await extractTextFromArrayBuffer(repoBankBuffer);
+    } else if (billFile && bankFile) {
+        billText = await extractText(billFile);
+        bankText = await extractText(bankFile);
+    } else {
+        return alert("Provide both PDFs");
+    }
+
+    const bills = extractBills(billText);
+    const payments = extractPayments(bankText);
+    const rows = reconcileRows(bills, payments);
+
+    render(rows);
+}
+
+function sortTable(col) {
+    const table = document.getElementById("resultTable");
+    const rows = Array.from(table.rows).slice(1);
+    const asc = table.dataset.sort != col;
+
+    rows.sort((a, b) => {
+        const A = a.cells[col].innerText;
+        const B = b.cells[col].innerText;
+        return asc
+            ? A.localeCompare(B, undefined, { numeric: true })
+            : B.localeCompare(A, undefined, { numeric: true });
+    });
+
+    rows.forEach(r => table.appendChild(r));
+    table.dataset.sort = asc ? col : "";
+}
+
+function downloadCSV() {
+    let csv = "Flat,Bill,Payment,Status\n";
+
+    document.querySelectorAll("#resultTable tbody tr").forEach(r => {
+        csv += Array.from(r.cells).slice(0,4).map(c => c.innerText).join(",") + "\n";
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a");
+
+    a.href = URL.createObjectURL(blob);
+    a.download = "reconciliation.csv";
+    a.click();
+}
+
 </script>
 
 </body>
