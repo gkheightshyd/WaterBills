@@ -9,55 +9,29 @@
 
 <style>
 body { font-family: Arial, sans-serif; padding: 16px; }
-button { padding: 10px 14px; margin-top: 8px; width: 100%; }
+button { padding: 8px 10px; margin-top: 4px; }
 table { border-collapse: collapse; width: 100%; margin-top: 16px; }
 th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
 th { background: #f0f0f0; cursor: pointer; }
 .paid { background: #c8e6c9; }
 .pending { background: #eeeeee; }
 .duplicate { background: #ffe0b2; }
+
+.pay-btn {
+  border: none;
+  border-radius: 6px;
+  color: white;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.phonepe { background:#5f259f; }
+.upi { background:#0b7a75; }
 </style>
 </head>
 
 <body>
 
 <h2>Water Bill Reconciliation</h2>
-
-<div style="margin-top:8px;">
-<label>Month</label>
-<select id="monthSelect" style="margin-right:8px;"></select>
-
-<label>Year</label>
-<input type="text" id="yearInput" style="width:80px;" />
-<br/>
-
-<label style="margin-left:8px;">
-<input type="checkbox" id="adminToggle" /> Admin
-</label>
-
-<div id="adminSection" style="display:none; margin-top:8px;">
-<label>Water Bill PDF</label>
-<input type="file" id="billPdf" accept="application/pdf" />
-
-<label>Bank Statement PDF</label>
-<input type="file" id="bankPdf" accept="application/pdf" />
-
-<label>Repo Bill URL</label>
-<input type="text" id="repoBillUrl"
-placeholder="Paste GitHub blob or raw URL"
-value="https://github.com/cravikumar/WaterBills/blob/main/MARCH%202026%20-%20GK%20HEIGHTS%20WATER%20BILLS%20DATA.pdf" />
-
-<label>Repo Bank URL</label>
-<input type="text" id="repoBankUrl"
-placeholder="Paste GitHub blob or raw URL"
-value="https://github.com/cravikumar/WaterBills/blob/main/SBIPDF20260328091009XXXXXX1839-unlocked.pdf" />
-
-<div style="margin-top:8px;">
-<button onclick="reconcile()">Reconcile</button>
-<button onclick="downloadCSV()">Download CSV</button>
-</div>
-</div>
-</div>
 
 <table id="resultTable">
 <thead>
@@ -75,285 +49,6 @@ value="https://github.com/cravikumar/WaterBills/blob/main/SBIPDF20260328091009XX
 
 <script>
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
-
-let repoBillBuffer = null;
-let repoBankBuffer = null;
-let flatMobileMap = {};
-
-const monthShortNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const monthFullNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
-function populateMonthYearControls() {
-    const sel = document.getElementById('monthSelect');
-
-    monthShortNames.forEach((m,i) => {
-        const opt = document.createElement('option');
-        opt.value = m;
-        opt.innerText = m;
-        sel.appendChild(opt);
-    });
-
-    const yi = document.getElementById('yearInput');
-    const now = new Date();
-
-    const curMonth = now.getMonth();
-    const curYear = now.getFullYear();
-
-    sel.selectedIndex = curMonth;
-    yi.value = curYear;
-
-    sel.addEventListener('change', buildRepoUrls);
-    yi.addEventListener('change', buildRepoUrls);
-}
-
-function buildRepoUrls() {
-    const sel = document.getElementById('monthSelect');
-    const yi = document.getElementById('yearInput');
-
-    const month = sel.value;
-    const year = yi.value.trim() || new Date().getFullYear();
-
-    const base = `https://github.com/cravikumar/WaterBills/blob/main/docs/${year}/${month}`;
-
-    document.getElementById('repoBillUrl').value = `${base}/bill.pdf`;
-    document.getElementById('repoBankUrl').value = `${base}/statement.pdf`;
-}
-
-function setupAdminToggle() {
-    const toggle = document.getElementById('adminToggle');
-    const adminSection = document.getElementById('adminSection');
-
-    if (!toggle || !adminSection) return;
-
-    adminSection.style.display = 'none';
-    toggle.checked = false;
-
-    toggle.addEventListener('change', () => {
-        adminSection.style.display = toggle.checked ? '' : 'none';
-    });
-}
-
-async function fetchArrayBuffer(url) {
-    try {
-        if (/github\.com/.test(url) && /\/blob\//.test(url)) {
-            url = url.replace(/^https:\/\/github\.com\//, 'https://raw.githubusercontent.com/')
-                     .replace('/blob/', '/');
-        }
-    } catch(e) {}
-
-    let fetchUrl = url;
-
-    try {
-        fetchUrl = encodeURI(decodeURIComponent(url));
-    } catch(e) {
-        fetchUrl = encodeURI(url);
-    }
-
-    const res = await fetch(fetchUrl);
-    if (!res.ok) throw new Error('Failed to fetch ' + fetchUrl + ' - ' + res.status);
-
-    return await res.arrayBuffer();
-}
-
-async function fetchText(url) {
-    try {
-        if (/github\.com/.test(url) && /\/blob\//.test(url)) {
-            url = url.replace(/^https:\/\/github\.com\//, 'https://raw.githubusercontent.com/')
-                     .replace('/blob/', '/');
-        }
-    } catch(e) {}
-
-    let fetchUrl = url;
-
-    try {
-        fetchUrl = encodeURI(decodeURIComponent(url));
-    } catch(e) {
-        fetchUrl = encodeURI(url);
-    }
-
-    const res = await fetch(fetchUrl);
-    if (!res.ok) throw new Error('Failed to fetch ' + fetchUrl + ' - ' + res.status);
-
-    return await res.text();
-}
-
-async function loadFlatMobileCsv() {
-    const csvUrl = 'https://github.com/cravikumar/WaterBills/blob/main/docs/flatmobile.csv';
-
-    try {
-        const text = await fetchText(csvUrl);
-        parseFlatMobileCsv(text);
-        console.log('Loaded flat->mobile mapping (rows:', Object.keys(flatMobileMap).length, ')');
-    } catch (e) {
-        console.warn('Failed to load flatmobile.csv:', e);
-    }
-}
-
-function parseFlatMobileCsv(text) {
-    flatMobileMap = {};
-
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (!lines.length) return;
-
-    const start = (lines[0].toLowerCase().includes('flat') && lines[0].toLowerCase().includes('mobile')) ? 1 : 0;
-
-    for (let i = start; i < lines.length; i++) {
-        const parts = lines[i].split(',').map(p => p.trim());
-        if (parts.length < 2) continue;
-
-        const flat = parts[0];
-        let mobile = parts[1].replace(/[^\d+]/g, '');
-
-        if (mobile.startsWith('+')) mobile = mobile.slice(1);
-        if (mobile.length === 10) mobile = '91' + mobile;
-
-        flatMobileMap[flat] = mobile;
-    }
-}
-
-async function loadPdfsFromRepo() {
-    const billUrlInput = document.getElementById('repoBillUrl');
-    const bankUrlInput = document.getElementById('repoBankUrl');
-
-    let billUrl = billUrlInput.value.trim();
-    let bankUrl = bankUrlInput.value.trim();
-
-    try {
-        let bBuf, kBuf;
-
-        try {
-            [bBuf, kBuf] = await Promise.all([
-                fetchArrayBuffer(billUrl),
-                fetchArrayBuffer(bankUrl)
-            ]);
-        } catch (err) {
-            const sel = document.getElementById('monthSelect');
-            const monthShort = sel.value;
-            const mi = monthShortNames.indexOf(monthShort);
-
-            if (mi >= 0) {
-                const monthFull = monthFullNames[mi];
-
-                const altBillUrl = billUrl.replace('/' + monthShort + '/', '/' + monthFull + '/');
-                const altBankUrl = bankUrl.replace('/' + monthShort + '/', '/' + monthFull + '/');
-
-                [bBuf, kBuf] = await Promise.all([
-                    fetchArrayBuffer(altBillUrl),
-                    fetchArrayBuffer(altBankUrl)
-                ]);
-
-                billUrl = altBillUrl;
-                bankUrl = altBankUrl;
-
-                billUrlInput.value = billUrl;
-                bankUrlInput.value = bankUrl;
-            } else throw err;
-        }
-
-        repoBillBuffer = bBuf;
-        repoBankBuffer = kBuf;
-
-        console.log('Loaded PDFs from repo (auto-reconciling)');
-        try { await reconcile(); } catch(e){ console.warn('Auto-reconcile failed:', e); }
-
-    } catch (err) {
-        console.warn('Error loading PDFs:', err);
-    }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    populateMonthYearControls();
-    buildRepoUrls();
-    setupAdminToggle();
-
-    loadFlatMobileCsv().finally(() => {
-        loadPdfsFromRepo().catch(err => console.warn('Auto-load failed:', err));
-    });
-});
-
-
-
-
-
-
-async function extractText(file) {
-    const pdf = await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
-    let text = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map(i => i.str).join(" ") + "\n";
-    }
-    return text;
-}
-
-async function extractTextFromArrayBuffer(ab) {
-    const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-    let text = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map(i => i.str).join(" ") + "\n";
-    }
-    return text;
-}
-
-function extractBills(text) {
-    const regex = /(\d+)\s+(\d{3})\s+[\d\s]+?(\d+\.00)/g;
-    const rows = [];
-    let m;
-
-    while ((m = regex.exec(text)) !== null) {
-        const flat = m[2];
-        const amount = parseFloat(m[3]);
-
-        const floor = parseInt(flat[0]);
-        const unit = parseInt(flat.slice(1));
-
-        if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
-            rows.push({ flat, amount });
-        }
-    }
-
-    return rows;
-}
-
-function extractPayments(text) {
-    const regex = /\b(\d+\.00)\b/g;
-    const payments = [];
-    let m;
-
-    while ((m = regex.exec(text)) !== null) {
-        payments.push(parseFloat(m[1]));
-    }
-
-    return payments;
-}
-
-function reconcileRows(bills, payments) {
-    const paymentCount = {};
-    payments.forEach(p => paymentCount[p] = (paymentCount[p] || 0) + 1);
-
-    return bills.map(b => {
-        let status = "Pending";
-        let payment = "-";
-
-        if (paymentCount[b.amount] > 0) {
-            payment = b.amount;
-            paymentCount[b.amount]--;
-            status = "Paid";
-        }
-
-        if (payments.filter(p => p === b.amount).length > 1) {
-            status = "Duplicate Amount - Check";
-        }
-
-        return { ...b, payment, status };
-    });
-}
-
 function render(rows) {
     const tbody = document.querySelector("#resultTable tbody");
     tbody.innerHTML = "";
@@ -365,60 +60,50 @@ function render(rows) {
             r.status.includes("Paid") ? "paid" :
             r.status.includes("Duplicate") ? "duplicate" : "pending";
 
-        const month = document.getElementById('monthSelect').value;
+        const month = "Apr";
         const note = `${month}-${r.flat}`;
         const amountStr = Number(r.amount).toFixed(2);
 
         const upiId = "gkh37836321839@sbi";
 
-        const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&am=${encodeURIComponent(amountStr)}&cu=INR&tn=${encodeURIComponent(note)}`;
+        const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&am=${amountStr}&cu=INR&tn=${encodeURIComponent(note)}`;
+        const phonePeUrl = `phonepe://pay?pa=${encodeURIComponent(upiId)}&pn=GKHeights&am=${amountStr}&cu=INR&tn=${encodeURIComponent(note)}`;
+
+        const payCell = `
+        <td>
+          <div style="display:flex; gap:6px; justify-content:center;">
+
+            <a href="${phonePeUrl}" onclick="setTimeout(()=>alert('If not opened, open PhonePe manually'),1200)">
+              <button class="pay-btn phonepe">📱 PP</button>
+            </a>
+
+            <a href="${upiUrl}" onclick="setTimeout(()=>alert('If not opened, use any UPI app'),1200)">
+              <button class="pay-btn upi">💳 UPI</button>
+            </a>
+
+          </div>
+        </td>
+        `;
 
         const baseRow = `
         <td>${r.flat}</td>
         <td>${amountStr}</td>
         <td>${r.payment}</td>
         <td>${r.status}</td>
-        <td><a href="${upiUrl}" target="_blank"><button>PayNow</button></a></td>
+        ${payCell}
         `;
 
-        const mobile = flatMobileMap[r.flat];
-        let reminderCell = "";
-
-        if (mobile) {
-            const msg = `Reminder: Payment due for ${month} flat ${r.flat}. Amount: INR ${amountStr}. Please pay soon.`;
-            const waUrl = `https://wa.me/${mobile}?text=${encodeURIComponent(msg)}`;
-            reminderCell = `<td><a href="${waUrl}" target="_blank"><button>Send Reminder</button></a></td>`;
-        } else {
-            reminderCell = "<td>-</td>";
-        }
-
-        tr.innerHTML = baseRow + reminderCell;
+        tr.innerHTML = baseRow + "<td>-</td>";
         tbody.appendChild(tr);
     });
 }
 
-async function reconcile() {
-    const billFile = document.getElementById("billPdf").files[0];
-    const bankFile = document.getElementById("bankPdf").files[0];
-
-    let billText, bankText;
-
-    if (repoBillBuffer && repoBankBuffer) {
-        billText = await extractTextFromArrayBuffer(repoBillBuffer);
-        bankText = await extractTextFromArrayBuffer(repoBankBuffer);
-    } else if (billFile && bankFile) {
-        billText = await extractText(billFile);
-        bankText = await extractText(bankFile);
-    } else {
-        return alert("Provide both PDFs");
-    }
-
-    const bills = extractBills(billText);
-    const payments = extractPayments(bankText);
-    const rows = reconcileRows(bills, payments);
-
-    render(rows);
-}
+// Demo data
+render([
+  { flat: "101", amount: 439, payment: "-", status: "Pending" },
+  { flat: "102", amount: 439, payment: 439, status: "Paid" },
+  { flat: "103", amount: 439, payment: "-", status: "Pending" }
+]);
 
 function sortTable(col) {
     const table = document.getElementById("resultTable");
@@ -435,21 +120,6 @@ function sortTable(col) {
 
     rows.forEach(r => table.appendChild(r));
     table.dataset.sort = asc ? col : "";
-}
-
-function downloadCSV() {
-    let csv = "Flat,Bill,Payment,Status\n";
-
-    document.querySelectorAll("#resultTable tbody tr").forEach(r => {
-        csv += Array.from(r.cells).slice(0,4).map(c => c.innerText).join(",") + "\n";
-    });
-
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-
-    a.href = URL.createObjectURL(blob);
-    a.download = "reconciliation.csv";
-    a.click();
 }
 
 </script>
