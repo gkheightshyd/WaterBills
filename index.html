@@ -497,7 +497,7 @@ function payViaUPI() {
     const upiId = "gkh37836321839@sbi";
     const note = getNote();
 
-    const url = `cred://upi/pay?pa=${upiId}&pn=GKHeights&am=${currentAmount}&cu=INR&tn=${encodeURIComponent(note)}`;
+    const url = `upi://pay?pa=${upiId}&pn=GKHeights&am=${currentAmount}&cu=INR&tn=${encodeURIComponent(note)}`;
 
     window.location.href = url;
 }
