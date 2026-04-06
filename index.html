@@ -115,7 +115,7 @@ function buildRepoUrls() {
     const month = sel.value;
     const year = yi.value.trim() || new Date().getFullYear();
 
-    const base = `https://github.com/cravikumar/WaterBills/blob/main/docs/${year}/${month}`;
+    const base = `https://github.com/gkheightshyd/WaterBills/blob/main/docs/${year}/${month}`;
 
     document.getElementById('repoBillUrl').value = `${base}/bill.pdf`;
     document.getElementById('repoBankUrl').value = `${base}/statement.pdf`;
@@ -180,7 +180,7 @@ async function fetchText(url) {
 }
 
 async function loadFlatMobileCsv() {
-    const csvUrl = 'https://github.com/cravikumar/WaterBills/blob/main/docs/flatmobile.csv';
+    const csvUrl = 'https://github.com/gkheightshyd/WaterBills/blob/main/docs/flatmobile.csv';
 
     try {
         const text = await fetchText(csvUrl);
