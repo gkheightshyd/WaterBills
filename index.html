@@ -479,7 +479,7 @@ function payViaPhonePe() {
     const upiId = "gkh37836321839@sbi";
     const note = getNote();
 
-    const url = `phonepe://pay?pa=${upiId}&pn=${encodeURIComponent('GK Heights ' + note)}&am=${currentAmount}&cu=INR`;
+    const url = `phonepe://pay?pa=${upiId}&tn=${encodeURIComponent('GK Heights ' + note)}&am=${currentAmount}&cu=INR`;
 
     window.location.href = url;
 }
@@ -488,7 +488,7 @@ function payViaGPay() {
     const upiId = "gkh37836321839@sbi";
     const note = getNote();
 
-    const url = `upi://pay?pa=${upiId}&pn=GKHeights&am=${currentAmount}&cu=INR&tn=${encodeURIComponent(note)}`;
+    const url = `gpay://pay?pa=${upiId}&pn=GKHeights&am=${currentAmount}&cu=INR&tn=${encodeURIComponent(note)}`;
 
     window.location.href = url;
 }
@@ -497,7 +497,7 @@ function payViaUPI() {
     const upiId = "gkh37836321839@sbi";
     const note = getNote();
 
-    const url = `upi://pay?pa=${upiId}&pn=GKHeights&am=${currentAmount}&cu=INR&tn=${encodeURIComponent(note)}`;
+    const url = `cred://pay?pa=${upiId}&pn=GKHeights&am=${currentAmount}&cu=INR&tn=${encodeURIComponent(note)}`;
 
     window.location.href = url;
 }
