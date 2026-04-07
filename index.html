@@ -301,19 +301,27 @@ async function extractTextFromArrayBuffer(ab) {
 }
 
 function extractBills(text) {
-    const regex = /(\d+)\s+(\d{3})\s+[\d\s]+?(\d+\.00)/g;
     const rows = [];
-    let m;
+    const lines = text.split('\n');
 
-    while ((m = regex.exec(text)) !== null) {
-        const flat = m[2];
-        const amount = parseFloat(m[3]);
+    for (let line of lines) {
+        // normalize spacing
+        line = line.replace(/\s+/g, ' ').trim();
 
-        const floor = parseInt(flat[0]);
-        const unit = parseInt(flat.slice(1));
+        // match: flat number + last amount in line
+        const match = line.match(/\b(\d{3})\b.*?(\d+\.\d{2})$/);
 
-        if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
-            rows.push({ flat, amount });
+        if (match) {
+            const flat = match[1];
+            const amount = parseFloat(match[2]);
+
+            const floor = parseInt(flat[0]);
+            const unit = parseInt(flat.slice(1));
+
+            // filter valid flats (101–514)
+            if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
+                rows.push({ flat, amount });
+            }
         }
     }
 
