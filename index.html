@@ -498,7 +498,7 @@ function payViaUPI() {
     const upiId = "gkh37836321839@sbi";
     const note = getNote();
 
-    const url = `upi://pay?pa=${upiId}&pn=${encodeURIComponent('Loading')}&am=${currentAmount}&cu=IN}&tn=waterbill`;
+    const url = `upi://pay?pa=${upiId}&pn=${encodeURIComponent('Loading')}&am=${currentAmount}&cu=INR&tn=waterbill`;
 
     window.location.href = url;
 }
