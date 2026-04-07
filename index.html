@@ -420,6 +420,7 @@ async function reconcile() {
     const rows = reconcileRows(bills, payments);
 
     render(rows);
+    sortTable(1);
 }
 
 function sortTable(col) {
