@@ -304,22 +304,20 @@ function extractBills(text) {
     const lines = text.split('\n');
 
     for (let line of lines) {
-        // normalize spacing
         line = line.replace(/\s+/g, ' ').trim();
 
-        // match: flat number + last amount in line
-        const match = line.match(/\b(\d{3})\b[\s\S]*?(\d+\.\d{2})\b/);
-        if (match) {
-            const flat = match[1];
-            const amount = parseFloat(match[2]);
+        const flatMatch = line.match(/\b(\d{3})\b);
 
-            const floor = parseInt(flat[0]);
-            const unit = parseInt(flat.slice(1));
+        // strictly pick decimal values only
+        const amounts = line.match(/\d+\.\d{2}/g);
 
-            // filter valid flats (101–514)
-            if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
-                rows.push({ flat, amount });
-            }
+        if (flatMatch && amounts) {
+            const flat = flatMatch[1];
+
+            // since you confirmed LAST column is amount
+            const amount = parseFloat(amounts[amounts.length - 1]);
+
+            rows.push({ flat, amount });
         }
     }
 
