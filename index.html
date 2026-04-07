@@ -305,23 +305,18 @@ function extractBills(text) {
     const lines = text.split('\n');
 
     for (let line of lines) {
-        // normalize spacing
         line = line.replace(/\s+/g, ' ').trim();
 
-        // match: flat number + last amount in line
-        const match = line.match(/\b(\d{3})\b.*?(\d+\.\d{2})$/);
+        const flatMatch = line.match(/\b(\d{3})\b/);
+        const amounts = line.match(/\d+\.\d{2}/g);
 
-        if (match) {
-            const flat = match[1];
-            const amount = parseFloat(match[2]);
+        if (flatMatch && amounts) {
+            const flat = flatMatch[1];
 
-            const floor = parseInt(flat[0]);
-            const unit = parseInt(flat.slice(1));
+            // take LAST amount (actual bill)
+            const amount = parseFloat(amounts[amounts.length - 1]);
 
-            // filter valid flats (101–514)
-            if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
-                rows.push({ flat, amount });
-            }
+            rows.push({ flat, amount });
         }
     }
 
