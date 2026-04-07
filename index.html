@@ -308,8 +308,7 @@ function extractBills(text) {
         line = line.replace(/\s+/g, ' ').trim();
 
         // match: flat number + last amount in line
-        const match = line.match(/\b(\d{3})\b.*?(\d+\.\d{2})$/);
-
+        const match = line.match(/\b(\d{3})\b[\s\S]*?(\d+\.\d{2})\b/);
         if (match) {
             const flat = match[1];
             const amount = parseFloat(match[2]);
