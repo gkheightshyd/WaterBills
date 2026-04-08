@@ -385,10 +385,7 @@ function render(rows) {
         <td>${amountStr}</td>
         <td>${r.payment}</td>
         <td>${r.status}</td>
-        <td>
-  <button onclick="openPayModal('${r.flat}', '${amountStr}')">
-    Pay Now
-  </button> `;
+        <td>Unavailable `;
 
         const mobile = flatMobileMap[r.flat];
         let reminderCell = "";
