@@ -319,14 +319,21 @@ function extractBills(text) {
 
     return rows;
 }
-
 function extractPayments(text) {
-    const regex = /\b(\d+\.00)\b/g;
+    // Match amounts like "1028.00" or with thousand separators like "1,028.00"
+    const regex = /(-?\d[\d,]*\.\d{2})/g;
+
     const payments = [];
     let m;
 
     while ((m = regex.exec(text)) !== null) {
-        payments.push(parseFloat(m[1]));
+        const raw = m[1].replace(/,/g, '');
+        let val = parseFloat(raw);
+
+        if (!isNaN(val)) {
+            val = Math.round(val * 100) / 100;
+            payments.push(val);
+        }
     }
 
     return payments;
