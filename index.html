@@ -299,24 +299,20 @@ async function extractTextFromArrayBuffer(ab) {
     }
     return text;
 }
+
 function extractBills(text) {
+    const regex = /(\d+)\s+(\d{3})\s+[\d\-\.\s]+?(-?\d+\.\d{2})/g;
     const rows = [];
-    const lines = text.split('\n');
+    let m;
 
-    for (let line of lines) {
-        line = line.replace(/\s+/g, ' ').trim();
+    while ((m = regex.exec(text)) !== null) {
+        const flat = m[2];
+        const amount = parseFloat(m[3]);
 
-        const flatMatch = line.match(/\b(\d{3})\b);
+        const floor = parseInt(flat[0]);
+        const unit = parseInt(flat.slice(1));
 
-        // strictly pick decimal values only
-        const amounts = line.match(/\d+\.\d{2}/g);
-
-        if (flatMatch && amounts) {
-            const flat = flatMatch[1];
-
-            // since you confirmed LAST column is amount
-            const amount = parseFloat(amounts[amounts.length - 1]);
-
+        if (floor >= 1 && floor <= 5 && unit >= 1 && unit <= 14) {
             rows.push({ flat, amount });
         }
     }
