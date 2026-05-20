@@ -391,7 +391,7 @@ function render(rows) {
         let reminderCell = "";
 
         if (mobile) {
-            const msg = `Reminder: Payment due for ${month} flat ${r.flat}. Amount: INR ${amountStr}. Please pay soon.`;
+            const msg = `Reminder: Water Bill Payment due for ${month} flat ${r.flat}. Amount: INR ${amountStr}. Please pay soon. Use Upi id - gkh37836321839@sbi `;
             const waUrl = `https://wa.me/${mobile}?text=${encodeURIComponent(msg)}`;
             reminderCell = `<td><a href="${waUrl}" target="_blank"><button>Send Reminder</button></a></td>`;
         } else {
